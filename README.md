@@ -1,6 +1,6 @@
 # ESP8266 Wifi
 
-***STM32*** DMA non-blocking WiFi interaction, using ESP8266 AT commands.
+***STM32*** Low-Layer(LL) library. DMA non-blocking WiFi interaction, using ESP8266 AT commands.
 
 - Network scan
 - Non-blocking and blocking response wait
