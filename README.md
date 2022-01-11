@@ -40,7 +40,8 @@ file(GLOB_RECURSE SOURCES ${sources}
 add_executable(${PROJECT_NAME}.elf ${SOURCES} ${LINKER_SCRIPT}) # executable declaration should be before libraries
 
 target_link_libraries(${PROJECT_NAME}.elf Ethernet)   # add library dependencies to project
-target_link_libraries(${PROJECT_NAME}.elf Regex) 
+target_link_libraries(${PROJECT_NAME}.elf Regex)
+target_link_libraries(${PROJECT_NAME}.elf Vector)
 ```
 
 3. Then Build -> Clean -> Rebuild Project
