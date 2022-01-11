@@ -16,6 +16,11 @@ CPMAddPackage(
         GIT_TAG origin/main)
 
 CPMAddPackage(
+        NAME Regex
+        GITHUB_REPOSITORY ximtech/Regex
+        GIT_TAG origin/main)
+
+CPMAddPackage(
         NAME STM32Core
         GITHUB_REPOSITORY ximtech/STM32Core
         GIT_TAG origin/main)

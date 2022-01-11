@@ -4,8 +4,7 @@
 #define MAX_PASSWORD_LENGTH 64
 #define TMP_SEND_TX_BUFFER_LENGTH 20
 #define TMP_CONNECT_TX_BUFFER_LENGTH 200
-#define ACCESS_POINT_INFO_TOKEN_MAX_LENGTH   (ESP8266_SSID_MAX_LENGTH + 40)
-#define SOFT_AP_CLIENT_INFO_TOKEN_MAX_LENGTH (ESP8266_IP_MAX_LENGTH + ESP8266_MAC_ADDRESS_MAX_LENGTH)
+#define SOFT_AP_CLIENT_INFO_TOKEN_MAX_LENGTH (IP_ADDRESS_LENGTH + MAC_ADDRESS_LENGTH + 1)   // + 1 for line end
 
 #define OK_STATUS            "\r\nOK\r\n"
 #define SEND_OK_STATUS       "\r\nSEND OK\r\n"
@@ -14,9 +13,6 @@
 #define ERROR_STATUS         "\r\nERROR\r\n"
 #define FAIL_STATUS          "\r\nFAIL\r\n"
 #define NEW_LINE             "\r\n"
-
-#define IP_ADDRESS_MIN_LENGTH 7
-#define IP_ADDRESS_MAX_LENGTH 15
 
 static enum AccessPointParameter {
     SECURITY, SSID, SIGNAL_STRENGTH
@@ -30,12 +26,8 @@ static inline bool isPasswordValid(char *password);
 static void sendATCommand(WiFi *wifi, const char *ATCommandPattern, ...);
 static bool isResponseOK(char *responseBody, bool isServerResponse);
 static bool isResponseError(char *responseBody);
-
 static void setDMATransmitBufferAddress(USART_DMA *USARTDmaInstance, char *bufferPointer, uint32_t bufferSize);
-
-static void clearAccessPointData(AccessPoint *AP);
 static void parseToAP(AccessPoint *accessPoint, char *buffer);
-static void parseAPParamString(char *stringToParse, char *result);
 
 
 WiFi *initWifiESP8266(USART_TypeDef *USARTx,
@@ -237,26 +229,28 @@ ResponseStatus disconnectFromAccessPointESP8266(WiFi *wifi) {
     return waitForResponseESP8266(wifi);
 }
 
-void connectESP8266(WiFi *wifi, char *host, uint16_t port) {
+ResponseStatus connectESP8266(WiFi *wifi, char *host, uint16_t port) {
     char tmpBuffer[TMP_CONNECT_TX_BUFFER_LENGTH];   // create tmp buffer for command
     uint32_t savedBufferSize = USARTDmaPointer->txData->bufferSize;
     char *savedTxBuffer = USARTDmaPointer->txData->bufferPointer;
     setDMATransmitBufferAddress(USARTDmaPointer, tmpBuffer, TMP_CONNECT_TX_BUFFER_LENGTH);  // set tmp buffer as dma address
 
     sendATCommand(wifi, "AT+CIPSTART=\"TCP\",\"%s\",%d", host, port);
-    while (!isTransferCompleteUSART_DMA(USARTDmaPointer->txData));
+    ResponseStatus status = waitForResponseESP8266(wifi);
     setDMATransmitBufferAddress(USARTDmaPointer, savedTxBuffer, savedBufferSize);   // return previous buffer as dma address
+    return status;
 }
 
-void multipleConnectESP8266(WiFi *wifi, ConnectionID id, char *host, char *port) {
+ResponseStatus multipleConnectESP8266(WiFi *wifi, ConnectionID id, char *host, char *port) {
     char tmpBuffer[TMP_CONNECT_TX_BUFFER_LENGTH];   // create tmp buffer for command
     uint32_t savedBufferSize = USARTDmaPointer->txData->bufferSize;
     char *savedTxBuffer = USARTDmaPointer->txData->bufferPointer;
     setDMATransmitBufferAddress(USARTDmaPointer, tmpBuffer, TMP_CONNECT_TX_BUFFER_LENGTH);  // set tmp buffer as dma address
 
     sendATCommand(wifi, "AT+CIPSTART=\"%d\",\"TCP\",\"%s\",%s", id, host, port);
-    while (!isTransferCompleteUSART_DMA(USARTDmaPointer->txData));
+    ResponseStatus status = waitForResponseESP8266(wifi);
     setDMATransmitBufferAddress(USARTDmaPointer, savedTxBuffer, savedBufferSize);   // return previous buffer as dma address
+    return status;
 }
 
 ResponseStatus checkForConnectionESP8266(WiFi *wifi) {
@@ -271,8 +265,10 @@ ResponseStatus checkForConnectionESP8266(WiFi *wifi) {
 
 ResponseStatus sendESP8266(WiFi *wifi, char *data) {
     uint32_t dataLength = strlen(data) + 2;
+    uint32_t savedBufferSize = USARTDmaPointer->txData->bufferSize;
     sendATCommand(wifi, "AT+CIPSEND=%d", dataLength);    // provide uriPattern length before request
     ResponseStatus status = waitForResponseESP8266(wifi);
+    USARTDmaPointer->txData->bufferSize = dataLength;
     if (isResponseStatusSuccess(status)) {
         memset(USARTDmaPointer->rxData->bufferPointer, 0, USARTDmaPointer->rxData->bufferSize);
         memset(USARTDmaPointer->txData->bufferPointer, 0, USARTDmaPointer->txData->bufferSize);
@@ -280,10 +276,11 @@ ResponseStatus sendESP8266(WiFi *wifi, char *data) {
         strcat(USARTDmaPointer->txData->bufferPointer, NEW_LINE);
         wifi->response->startTimeMillis = currentMilliSeconds();   // command start time
         wifi->response->isServerResponseAwaited = true;
-        transmitUSART_DMA(USARTDmaPointer, dataLength);
+        transmitTxBufferUSART_DMA(USARTDmaPointer);
         receiveRxBufferUSART_DMA(USARTDmaPointer);
-        return ESP8266_RESPONSE_WAITING;
+        status = ESP8266_RESPONSE_WAITING;
     }
+    USARTDmaPointer->txData->bufferSize = savedBufferSize;
     return status;
 }
 
@@ -297,16 +294,18 @@ ResponseStatus sendRequestBodyESP8266(WiFi *wifi) {
 
     sendATCommand(wifi, "AT+CIPSEND=%d", dataLength);
     ResponseStatus status = waitForResponseESP8266(wifi);
-    setDMATransmitBufferAddress(USARTDmaPointer, savedTxBuffer, savedBufferSize);   // return previous buffer as dma address
+    setDMATransmitBufferAddress(USARTDmaPointer, savedTxBuffer, dataLength);   // return previous buffer as dma address
     if (isResponseStatusSuccess(status)) {
         memset(USARTDmaPointer->rxData->bufferPointer, 0, USARTDmaPointer->rxData->bufferSize);
         strcat(USARTDmaPointer->txData->bufferPointer, NEW_LINE);
         wifi->response->startTimeMillis = currentMilliSeconds();   // command start time
         wifi->response->isServerResponseAwaited = true;
-        transmitUSART_DMA(USARTDmaPointer, dataLength);
+        transmitTxBufferUSART_DMA(USARTDmaPointer);
         receiveRxBufferUSART_DMA(USARTDmaPointer);
-        return ESP8266_RESPONSE_WAITING;
+        USARTDmaPointer->txData->bufferSize = savedBufferSize;
+        status = ESP8266_RESPONSE_WAITING;
     }
+    USARTDmaPointer->txData->bufferSize = savedBufferSize;
     return status;
 }
 
@@ -326,10 +325,12 @@ ResponseStatus sendRequestBodyByIdESP8266(WiFi *wifi, ConnectionID id) {
         strcat(USARTDmaPointer->txData->bufferPointer, NEW_LINE);
         wifi->response->startTimeMillis = currentMilliSeconds();   // command start time
         wifi->response->isServerResponseAwaited = true;
-        transmitUSART_DMA(USARTDmaPointer, dataLength);
+        transmitTxBufferUSART_DMA(USARTDmaPointer);
         receiveRxBufferUSART_DMA(USARTDmaPointer);
-        return ESP8266_RESPONSE_WAITING;
+        USARTDmaPointer->txData->bufferSize = savedBufferSize;
+        status = ESP8266_RESPONSE_WAITING;
     }
+    USARTDmaPointer->txData->bufferSize = savedBufferSize;
     return status;
 }
 
@@ -353,43 +354,45 @@ void getLocalInfoESP8266(WiFi *wifi, LocalInfo *localInfo) {
     sendATCommand(wifi, "AT+CIFSR");
     ResponseStatus status = waitForResponseESP8266(wifi);
     if (isResponseStatusSuccess(status)) {
-        memset(localInfo->accessPointIP, 0, ESP8266_IP_MAX_LENGTH);
-        memset(localInfo->accessPointMAC, 0, ESP8266_MAC_ADDRESS_MAX_LENGTH);
-        memset(localInfo->localIP, 0, ESP8266_IP_MAX_LENGTH);
-        memset(localInfo->localMAC, 0, ESP8266_MAC_ADDRESS_MAX_LENGTH);
-        substringString("APIP,\"", "\"", wifi->response->responseBody, localInfo->accessPointIP);
-        substringString("APMAC,\"", "\"", wifi->response->responseBody, localInfo->accessPointMAC);
-        substringString("STAIP,\"", "\"", wifi->response->responseBody, localInfo->localIP);
-        substringString("STAMAC,\"", "\"", wifi->response->responseBody, localInfo->localMAC);
+        char accessPointIP[IP_ADDRESS_LENGTH + 1] = {0};
+        char accessPointMAC[MAC_ADDRESS_LENGTH + 1] = {0};
+        char localIP[IP_ADDRESS_LENGTH + 1] = {0};
+        char localMAC[MAC_ADDRESS_LENGTH + 1] = {0};
+
+        substringString("APIP,\"", "\"", wifi->response->responseBody, accessPointIP);
+        substringString("APMAC,\"", "\"", wifi->response->responseBody, accessPointMAC);
+        substringString("STAIP,\"", "\"", wifi->response->responseBody, localIP);
+        substringString("STAMAC,\"", "\"", wifi->response->responseBody, localMAC);
+
+        localInfo->accessPointIP = ipAddressFromString(accessPointIP);
+        localInfo->accessPointMAC = macAddressFromString(accessPointMAC);
+        localInfo->localIP = ipAddressFromString(localIP);
+        localInfo->localMAC = macAddressFromString(localMAC);
     }
 }
 
-uint8_t receivedAccessPointCountESP8266(WiFi *wifi) {
-    uint8_t count = 0;
-    const char *tmp = wifi->response->responseBody;
-    while ((tmp = strstr(tmp, "+CWLAP:"))) {
-        tmp += strlen("+CWLAP:");
-        count++;
-    }
-    return count;
-}
+AccessPointList getAvailableAccessPointsESP8266(WiFi *wifi) {
+    requestAvailableAccessPointsESP8266(wifi);
+    ResponseStatus status = waitForResponseESP8266(wifi);
+    AccessPointList accessPointList = {0};
 
-AccessPoint getAccessPointInfoESP8266(WiFi *wifi, uint8_t apNumber) {
-    char buffer[ACCESS_POINT_INFO_TOKEN_MAX_LENGTH];
-    char *source = wifi->response->responseBody;
-    AccessPoint accessPoint;
-    clearAccessPointData(&accessPoint);
+    if (isResponseStatusSuccess(status)) {
+        Regex regex;
+        regexCompile(&regex, "(.+?)");
 
-    for (uint8_t i = 0; i <= apNumber && (source = strstr(source, "+CWLAP:")); i++) {
-        memset(buffer, 0, ACCESS_POINT_INFO_TOKEN_MAX_LENGTH);
-        substringString("+CWLAP:(", ")", source, buffer);
-        source += strlen(buffer);
-    }
+        char *srcPointer = wifi->response->responseBody;;
+        for (int i = 0; i < ESP8266_AVAILABLE_ACCESS_POINT_COUNT; i++) {
+            Matcher matcher = regexMatch(&regex, srcPointer);
+            if (!matcher.isFound) break;
 
-    if (strlen(buffer) > 0) {
-        parseToAP(&accessPoint, buffer);
+            char *valuePointer = &srcPointer[matcher.foundAtIndex + 1];
+            valuePointer[matcher.matchLength - 2] = '\0';
+            parseToAP(&accessPointList.accessPointArray[i], valuePointer);
+            srcPointer += matcher.matchLength + matcher.foundAtIndex;
+            accessPointList.size++;
+        }
     }
-    return accessPoint;
+    return accessPointList;
 }
 
 ResponseStatus enableSoftApESP8266(WiFi *wifi, char *ssid, char *password, uint8_t channel, WifiEncryptionType encryption) {
@@ -440,24 +443,19 @@ uint8_t numberOfConnectedClientsESP8266(WiFi *wifi) {
 }
 
 SoftAPClient getSoftApClientInfo(WiFi *wifi, uint8_t clientNumber) {
-    char buffer[SOFT_AP_CLIENT_INFO_TOKEN_MAX_LENGTH];
+    char buffer[SOFT_AP_CLIENT_INFO_TOKEN_MAX_LENGTH] = {0};
     char *tmpSourcePointer = wifi->response->responseBody;
     SoftAPClient softApClient;
-    memset(softApClient.clientIP, 0, ESP8266_IP_MAX_LENGTH);
-    memset(softApClient.clientMac, 0, ESP8266_MAC_ADDRESS_MAX_LENGTH);
 
     for (uint8_t i = 0; (i <= clientNumber); i++) {
         memset(buffer, 0, SOFT_AP_CLIENT_INFO_TOKEN_MAX_LENGTH);
         substringString("", "\r\n", tmpSourcePointer, buffer);
         tmpSourcePointer += strlen(buffer) + 2;
     }
-
-    if (strlen(buffer) > 0) {
-        char *ipToken = strtok(buffer, ",");
-        char *macToken = strtok(NULL, ",");
-        strcpy(softApClient.clientIP, ipToken);
-        strcpy(softApClient.clientMac, macToken);
-    }
+    char *ipToken = strtok(buffer, ",");
+    char *macToken = strtok(NULL, ",");
+    softApClient.clientIP = ipAddressFromString(ipToken);
+    softApClient.clientMac = macAddressFromString(macToken);
     return softApClient;
 }
 
@@ -508,14 +506,14 @@ static void sendATCommand(WiFi *wifi, const char *ATCommandPattern, ...) {    //
     wifi->response->startTimeMillis = currentMilliSeconds();   // command start time
     wifi->response->isServerResponseAwaited = false;
     receiveRxBufferUSART_DMA(USARTDmaPointer);
-    transmitUSART_DMA(USARTDmaPointer, strlen(USARTDmaPointer->txData->bufferPointer));
+    transmitUSART_DMA(USARTDmaPointer, USARTDmaPointer->txData->bufferPointer, strlen(USARTDmaPointer->txData->bufferPointer));
 }
 
 static bool isResponseOK(char *responseBody, bool isServerResponse) {
     if (isServerResponse) {
         return strstr(responseBody, CLOSED_STATUS) || strstr(responseBody, DATA_RECEIVED_STATUS);
     }
-    return strstr(responseBody, OK_STATUS) || strstr(responseBody, SEND_OK_STATUS);
+    return strstr(responseBody, OK_STATUS) || strstr(responseBody, SEND_OK_STATUS)  || strstr(responseBody, ">");
 }
 
 static bool isResponseError(char *responseBody) {    // find for "error" or "fail" response status
@@ -535,24 +533,18 @@ static void setDMATransmitBufferAddress(USART_DMA *USARTDmaInstance, char *buffe
     LL_USART_EnableDMAReq_RX(USARTDmaInstance->USARTx);
 }
 
-static void clearAccessPointData(AccessPoint *AP) {
-    AP->encryption = ESP8266_ENCRYPTION_OPEN;
-    memset(AP->ssid, 0, ESP8266_SSID_MAX_LENGTH);
-    AP->signalStrength = 0;
-}
-
 static void parseToAP(AccessPoint *accessPoint, char *buffer) {
     char *source = buffer;
     char *parameterValue;
     APParameter = SECURITY;
 
-    while ((APParameter < SIGNAL_STRENGTH + 1) && (parameterValue = strtok_r(source, ",", &source))) {
+    while ((APParameter < SIGNAL_STRENGTH + 1) && (parameterValue = splitStringReentrant(source, ",", &source))) {
         switch (APParameter) {
             case SECURITY:
                 accessPoint->encryption = atoi(parameterValue);
                 break;
             case SSID:
-                parseAPParamString(parameterValue, accessPoint->ssid);
+                accessPoint->ssid = parameterValue;
                 break;
             case SIGNAL_STRENGTH:
                 accessPoint->signalStrength = atoi(parameterValue);
@@ -562,10 +554,4 @@ static void parseToAP(AccessPoint *accessPoint, char *buffer) {
         }
         APParameter++;
     }
-}
-
-static void parseAPParamString(char *stringToParse, char *result) {
-    char buffer[ESP8266_SSID_MAX_LENGTH] = {[0 ... ESP8266_SSID_MAX_LENGTH - 1] = 0};
-    substringString("\"", "\"", stringToParse, buffer);
-    strcpy(result, buffer);
 }

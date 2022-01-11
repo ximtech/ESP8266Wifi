@@ -4,15 +4,13 @@
 #include "USART_DMA.h"
 #include "DWT_Delay.h"
 #include "IPAddress.h"
+#include "MACAddress.h"
+#include "Regex.h"
 
-#define ESP8266_RESPONSE_DEFAULT_TIMEOUT_MS	15000
-#define ESP8266_KEEPALIVE_ATTEMPT_COUNT	    3
-
-#define ESP8266_SSID_MAX_LENGTH		   20
-#define ESP8266_IP_MAX_LENGTH          16 // The maximum length of an IPv4 address is 15 characters + 1 for line end
-#define ESP8266_MAC_ADDRESS_MAX_LENGTH 18 // The maximum length of a MAC address is 17 characters + 1 for line end
-
-#define ESP8266_PING_PACKET_TIMEOUT_VALUE -1
+#define ESP8266_RESPONSE_DEFAULT_TIMEOUT_MS	 15000
+#define ESP8266_KEEPALIVE_ATTEMPT_COUNT	     3
+#define ESP8266_PING_PACKET_TIMEOUT_VALUE   -1
+#define ESP8266_AVAILABLE_ACCESS_POINT_COUNT 20
 
 typedef enum ESP8266ResponseStatus {
 	ESP8266_RESPONSE_SUCCESS,
@@ -85,20 +83,25 @@ typedef enum SignalStrength {
 
 typedef struct AccessPoint {
     WifiEncryptionType encryption;
-    char ssid[ESP8266_SSID_MAX_LENGTH];
+    char *ssid;
     int8_t signalStrength;
 } AccessPoint;
 
+typedef struct AccessPointList {
+    AccessPoint accessPointArray[ESP8266_AVAILABLE_ACCESS_POINT_COUNT];
+    uint8_t size;
+} AccessPointList;
+
 typedef struct SoftAPClient {
-    char clientIP[ESP8266_IP_MAX_LENGTH];
-    char clientMac[ESP8266_MAC_ADDRESS_MAX_LENGTH];
+    IPAddress clientIP;
+    MACAddress clientMac;
 } SoftAPClient;
 
 typedef struct LocalInfo {
-    char accessPointIP[ESP8266_IP_MAX_LENGTH];
-    char accessPointMAC[ESP8266_MAC_ADDRESS_MAX_LENGTH];
-    char localIP[ESP8266_IP_MAX_LENGTH];
-    char localMAC[ESP8266_MAC_ADDRESS_MAX_LENGTH];
+    IPAddress accessPointIP;
+    MACAddress accessPointMAC;
+    IPAddress localIP;
+    MACAddress localMAC;
 } LocalInfo;
 
 typedef struct ResponseData {
@@ -146,12 +149,13 @@ APConnectionStatus getAccessPointConnectionStatusESP8266(WiFi *wifi);
 ResponseStatus disconnectFromAccessPointESP8266(WiFi *wifi);
 
 // Connect to server
-void connectESP8266(WiFi *wifi, char *host, uint16_t port);
-void multipleConnectESP8266(WiFi *wifi, ConnectionID id, char *host, char *port);
+ResponseStatus connectESP8266(WiFi *wifi, char *host, uint16_t port);
+ResponseStatus multipleConnectESP8266(WiFi *wifi, ConnectionID id, char *host, char *port);
 ResponseStatus checkForConnectionESP8266(WiFi *wifi);
 ResponseStatus closeConnectionESP8266(WiFi *wifi);
 ResponseStatus closeConnectionByIdESP8266(WiFi *wifi, ConnectionID id);
 
+ResponseStatus sendESP8266(WiFi *wifi, char *data);
 ResponseStatus sendRequestBodyESP8266(WiFi *wifi);
 ResponseStatus sendRequestBodyByIdESP8266(WiFi *wifi, ConnectionID id);
 
@@ -160,8 +164,7 @@ void getLocalInfoESP8266(WiFi *wifi, LocalInfo *localInfo);
 
 // Network scan
 void requestAvailableAccessPointsESP8266(WiFi *wifi);
-uint8_t receivedAccessPointCountESP8266(WiFi *wifi);
-AccessPoint getAccessPointInfoESP8266(WiFi *wifi, uint8_t apNumber);
+AccessPointList getAvailableAccessPointsESP8266(WiFi *wifi);
 
 // Soft AP
 ResponseStatus enableSoftApESP8266(WiFi *wifi, char *ssid, char *password, uint8_t channel, WifiEncryptionType encryption);

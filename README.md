@@ -40,6 +40,7 @@ file(GLOB_RECURSE SOURCES ${sources}
 add_executable(${PROJECT_NAME}.elf ${SOURCES} ${LINKER_SCRIPT}) # executable declaration should be before libraries
 
 target_link_libraries(${PROJECT_NAME}.elf Ethernet)   # add library dependencies to project
+target_link_libraries(${PROJECT_NAME}.elf Regex) 
 ```
 
 3. Then Build -> Clean -> Rebuild Project
@@ -75,6 +76,13 @@ void DMA2_Stream7_IRQHandler(void) {
 ***The following example for base application***
 ```c
     WiFi *wifi = initWifiESP8266(USART1, DMA2, LL_DMA_STREAM_2, LL_DMA_STREAM_7, 2000, 1000);
+
+    AccessPointList apList = getAvailableAccessPointsESP8266(wifi);
+    for (uint8_t i = 0; i < apList.size; i++) {
+        AccessPoint accessPoint = apList.accessPointArray[i];
+        printf("SSID:[%s], Encryption: [%d], Signal: [%d]\n", accessPoint.ssid, accessPoint.encryption, accessPoint.signalStrength);
+    }
+
     APConnectionStatus connectionStatus = beginESP8266(wifi, "SSID", "WIFI_PASSWORD");
     while (connectionStatus == ESP8266_WIFI_WAITING_FOR_CONNECTION) {
         connectionStatus = getAccessPointConnectionStatusESP8266(wifi);
@@ -82,9 +90,20 @@ void DMA2_Stream7_IRQHandler(void) {
     }
 
     if (connectionStatus == ESP8266_WIFI_CONNECTED) {
+        enableOpenSoftApESP8266(wifi, "My_Test_Network_ESP8266", 1);
+
+        int clients = numberOfConnectedClientsESP8266(wifi);
+        for (int i = 0; i < clients; i++) {
+            SoftAPClient client = getSoftApClientInfo(wifi, i);
+            printf("Ip: %s, Mac: %s\n", client.clientIP.octetsIPv4, client.clientMac.octets);
+        }
+
+
         LocalInfo localInfo;
         getLocalInfoESP8266(wifi, &localInfo);
-        printf("Ip: %s\n", localInfo.localIP);
+        char buffer[25] = {0};
+        ipAddressToString(&localInfo.localIP, buffer);
+        printf("Ip: %s\n", buffer);
 
         connectESP8266(wifi, "api.thingspeak.com", 80);
         sprintf(wifi->request->requestBody, "GET /channels/1243676/fields/1.json?results=%d", 10);
@@ -93,5 +112,8 @@ void DMA2_Stream7_IRQHandler(void) {
         if (isResponseStatusSuccess(status)) {
             printf("%s", wifi->response->responseBody);
         }
+    }
+
+    while (1) {
     }
 ```
