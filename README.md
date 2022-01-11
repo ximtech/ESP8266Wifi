@@ -13,8 +13,8 @@ How to add CPM to the project, check the [link](https://github.com/cpm-cmake/CPM
 
 ```cmake
 CPMAddPackage(
-        NAME ESP8266WiFi
-        GITHUB_REPOSITORY ximtech/ESP8266WiFi
+        NAME ESP8266Wifi
+        GITHUB_REPOSITORY ximtech/ESP8266Wifi
         GIT_TAG origin/main)
 ```
 
