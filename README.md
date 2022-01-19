@@ -2,6 +2,7 @@
 
 ***STM32*** Low-Layer(LL) library. DMA non-blocking WiFi interaction, using ESP8266 AT commands.
 
+### Features
 - Network scan
 - Non-blocking and blocking response wait
 - Soft AP support
